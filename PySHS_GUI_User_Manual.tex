@@ -1,0 +1,1033 @@
+\hypertarget{pyshs-gui-user-manual}{%
+\section{PySHS GUI --- User Manual}\label{pyshs-gui-user-manual}}
+
+\textbf{PySHS V3.2.x Graphical User Interface}\\
+A desktop interface for the Computational Second Harmonic Scattering
+codes \textbf{HRS} and \textbf{SHS}
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+Public License for more details.
+
+This user manual accompanies the PySHS Tkinter GUI. It describes how to
+install, launch, and operate the interface, and how each menu and input
+parameter maps to the underlying C programs documented in the official
+PySHS user manual.
+
+To report errors or suggest improvements related to the GUI, contact the
+PySHS authors (e.g.~pierre-marie.gassin@enscm.fr) or the maintainer of
+this interface.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{contents}{%
+\subsection{Contents}\label{contents}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Introduction\\
+\item
+  Requirements and installation\\
+\item
+  Launching the interface\\
+\item
+  Overview of the main window\\
+\item
+  HRS Calculation tab\\
+\item
+  SHS Calculation tab\\
+\item
+  Positions / Orientations generation\\
+\item
+  Results panel and plots\\
+\item
+  Input file formats\\
+\item
+  Practical workflow examples\\
+\item
+  Important notes and troubleshooting\\
+\item
+  Relation to the command-line PySHS codes
+\end{enumerate}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{introduction}{%
+\subsection{1. Introduction}\label{introduction}}
+
+\hypertarget{purpose-of-the-gui}{%
+\subsubsection{1.1 Purpose of the GUI}\label{purpose-of-the-gui}}
+
+PySHS is a computational package for \textbf{Second Harmonic Scattering
+(SHS)} calculations. The core engines are written in \textbf{C}
+(\texttt{HRS.c}, \texttt{SHS.c}). They are normally run from the
+terminal with interactive prompts and text input files.
+
+The \textbf{PySHS GUI} provides a graphical front-end that:
+
+\begin{itemize}
+\tightlist
+\item
+  selects the calculation module (\textbf{HRS} or \textbf{SHS});
+\item
+  sets all numerical parameters through forms;
+\item
+  edits or loads the hyperpolarizability tensor (β) and, for SHS, the
+  positions/orientations file;
+\item
+  compiles the C sources if needed;
+\item
+  runs the calculation and streams progress messages live;
+\item
+  displays intensity plots and (for SHS) a 3D dipole-assembly plot;
+\item
+  allows export of results and figures.
+\end{itemize}
+
+The scientific meaning of the outputs (coefficients (a\_V), (b\_V),
+(c\_V), (I\_2), (I\_4), depolarization ratio, angle-resolved
+intensities, etc.) is the same as in the official PySHS manual. This
+document focuses on \textbf{how to use the interface}.
+
+\hypertarget{what-the-gui-can-compute}{%
+\subsubsection{1.2 What the GUI can
+compute}\label{what-the-gui-can-compute}}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.1702}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.4255}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.4043}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Module
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Physical situation
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Underlying binary
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{HRS} & Incoherent scattering from uncorrelated molecules in
+solution (Hyper-Rayleigh Scattering) & \texttt{HRS} \\
+\textbf{SHS} & Coherent scattering from N correlated molecules
+(supramolecular aggregate) & \texttt{SHS} \\
+\end{longtable}
+
+Calculation types (keywords), shared by both modules:
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.4091}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5909}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Keyword
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Description
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{polarplot\_single} & Polarization-resolved intensity at one
+fixed scattering angle Θ \\
+\texttt{polarplot\_integrate} & Polarization-resolved intensity
+integrated between two scattering angles \\
+\texttt{angle\_scattering} & Intensity as a function of scattering angle
+for fixed polarization combinations \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{requirements-and-installation}{%
+\subsection{2. Requirements and
+installation}\label{requirements-and-installation}}
+
+\hypertarget{software-requirements}{%
+\subsubsection{2.1 Software requirements}\label{software-requirements}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Python 3.8+} with:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \texttt{tkinter} (usually included; on Debian/Ubuntu:
+    \texttt{sudo\ apt\ install\ python3-tk})
+  \item
+    \texttt{matplotlib} (\texttt{pip\ install\ matplotlib} or system
+    package \texttt{python3-matplotlib})
+  \item
+    \texttt{numpy}
+  \end{itemize}
+\item
+  A \textbf{C compiler}: \texttt{gcc} or \texttt{clang}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Linux: \texttt{sudo\ apt\ install\ build-essential}\\
+  \item
+    macOS: \texttt{xcode-select\ -\/-install}\\
+  \item
+    Windows: MinGW-w64, MSYS2, or equivalent providing \texttt{gcc}
+  \end{itemize}
+\item
+  Optional but recommended on Linux: \texttt{stdbuf} (GNU coreutils) for
+  live line-buffered output from the C programs
+\end{itemize}
+
+\hypertarget{directory-layout}{%
+\subsubsection{2.2 Directory layout}\label{directory-layout}}
+
+Typical layout of the GUI package:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{PySHS\_GUI/}
+\NormalTok{├── pyshs\_gui.py              \# Main application}
+\NormalTok{├── HRS.c / SHS.c             \# C sources}
+\NormalTok{├── HRS / SHS                 \# Executables (created by compilation)}
+\NormalTok{├── script\_sphere\_random.py}
+\NormalTok{├── script\_spheroid\_random.py}
+\NormalTok{├── script\_cylinder\_random.py}
+\NormalTok{├── graph\_polar.py}
+\NormalTok{├── graph\_angle.py}
+\NormalTok{├── graph\_assembly.py}
+\NormalTok{├── work/                     \# Temporary job directories}
+\NormalTok{└── PySHS\_GUI\_User\_Manual.md  \# This manual}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{compilation}{%
+\subsubsection{2.3 Compilation}\label{compilation}}
+
+The GUI can compile the sources automatically (\textbf{Compile HRS.c} /
+\textbf{Compile SHS.c} buttons, or at startup).
+
+Manual compilation (equivalent to the official manual):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{gcc} \AttributeTok{{-}o}\NormalTok{ HRS HRS.c }\AttributeTok{{-}lm}
+\FunctionTok{gcc} \AttributeTok{{-}o}\NormalTok{ SHS SHS.c }\AttributeTok{{-}lm}
+\end{Highlighting}
+\end{Shaded}
+
+On Windows, executables are named \texttt{HRS.exe} and \texttt{SHS.exe}.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{launching-the-interface}{%
+\subsection{3. Launching the interface}\label{launching-the-interface}}
+
+From a terminal, in the GUI directory:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ExtensionTok{python3}\NormalTok{ pyshs\_gui.py}
+\end{Highlighting}
+\end{Shaded}
+
+On first launch the interface checks for \texttt{gcc}/\texttt{clang} and
+compiles \texttt{HRS.c} and \texttt{SHS.c} if the executables are
+missing or older than the sources. Status messages appear in the
+\textbf{Calculation results} panel at the bottom.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{overview-of-the-main-window}{%
+\subsection{4. Overview of the main
+window}\label{overview-of-the-main-window}}
+
+The window is split into two vertical regions:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Top --- calculation tabs}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Tab \textbf{HRS Calculation}\\
+  \item
+    Tab \textbf{SHS Calculation}
+  \end{itemize}
+\item
+  \textbf{Bottom --- shared results area}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Left: text log and numerical output\\
+  \item
+    Right: plots (intensity and, for SHS, dipole assembly)
+  \end{itemize}
+\end{enumerate}
+
+A horizontal sash between top and bottom can be dragged to give more
+space to the calculation forms or to the results.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{hrs-calculation-tab}{%
+\subsection{5. HRS Calculation tab}\label{hrs-calculation-tab}}
+
+Use this tab for \textbf{incoherent} Hyper-Rayleigh Scattering
+(uncorrelated molecules).
+
+\hypertarget{calculation-type}{%
+\subsubsection{5.1 Calculation type}\label{calculation-type}}
+
+Dropdown \textbf{Calculation type}:
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.4375}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5625}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Value
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{polarplot\_single} & Polarization plot at one scattering angle
+Θ \\
+\texttt{polarplot\_integrate} & Polarization plot with integration from
+a start angle to an end angle \\
+\texttt{angle\_scattering} & Angular distribution of intensity between
+0° and 180° \\
+\end{longtable}
+
+The parameter fields below change automatically according to the
+selected type.
+
+\hypertarget{parameters}{%
+\subsubsection{5.2 Parameters}\label{parameters}}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.1364}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.3182}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2955}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Parameter
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Unit
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+When visible
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Description
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Scattering angle Θ} & degrees & \texttt{polarplot\_single} &
+Laboratory scattering angle. \textbf{0° = forward / transmission};
+\textbf{90° = right-angle collection} (common experimental geometry). \\
+\textbf{Start angle} & degrees & \texttt{polarplot\_integrate} & Lower
+bound of the scattering-angle integration range. \\
+\textbf{End angle} & degrees & \texttt{polarplot\_integrate} & Upper
+bound of the integration range. \\
+\textbf{Number of points} & integer & \texttt{polarplot\_integrate},
+\texttt{angle\_scattering} & Number of samples in the angular range (for
+integrate: integration points; for angle\_scattering: points from 0° to
+180°). \\
+\end{longtable}
+
+\hypertarget{hyperpolarizability-tensor-ux3b2}{%
+\subsubsection{5.3 Hyperpolarizability tensor
+(β)}\label{hyperpolarizability-tensor-ux3b2}}
+
+Text area for the microscopic hyperpolarizability tensor in
+\textbf{atomic units (a.u.)}.
+
+\textbf{Required format} (same as the official PySHS manual):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{\# comment line (optional but recommended)}
+\NormalTok{xxx 0.0}
+\NormalTok{xxy 0.0}
+\NormalTok{xxz 0.0}
+\NormalTok{xyx 0.0}
+\NormalTok{xyy 0.0}
+\NormalTok{xyz 0.0}
+\NormalTok{xzx 0.0}
+\NormalTok{xzy 0.0}
+\NormalTok{xzz 0.0}
+\NormalTok{yxx 0.0}
+\NormalTok{yxy 0.0}
+\NormalTok{yxz 0.0}
+\NormalTok{yyx 0.0}
+\NormalTok{yyy 0.0}
+\NormalTok{yyz 0.0}
+\NormalTok{yzx 0.0}
+\NormalTok{yzy 0.0}
+\NormalTok{yzz 0.0}
+\NormalTok{zxx 0.0}
+\NormalTok{zxy 0.0}
+\NormalTok{zxz 0.0}
+\NormalTok{zyx 0.0}
+\NormalTok{zyy 0.0}
+\NormalTok{zyz 0.0}
+\NormalTok{zzx 0.0}
+\NormalTok{zzy 0.0}
+\NormalTok{zzz 1.0}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{itemize}
+\tightlist
+\item
+  Line 1 is treated as a comment by the C program (skipped).\\
+\item
+  Each following line: \textbf{label} (e.g.~\texttt{zzz}) then
+  \textbf{value}.\\
+\item
+  All 27 Cartesian components of the rank-3 tensor must be present.
+\end{itemize}
+
+Buttons:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Load example} --- fills the area with a simple example (only
+  (\beta\_\{zzz\} = 1)).\\
+\item
+  \textbf{Load file\ldots{}} --- loads a β file from disk.
+\end{itemize}
+
+\hypertarget{actions}{%
+\subsubsection{5.4 Actions}\label{actions}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{▶ Run HRS calculation} --- writes temporary input files, feeds
+  interactive answers to \texttt{HRS}, streams stdout to the results
+  panel, then loads plots.\\
+\item
+  \textbf{Compile HRS.c} --- forces recompilation of the HRS binary.
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{shs-calculation-tab}{%
+\subsection{6. SHS Calculation tab}\label{shs-calculation-tab}}
+
+Use this tab for \textbf{coherent} Second Harmonic Scattering from a
+finite set of correlated molecules (aggregate).
+
+\hypertarget{calculation-type-1}{%
+\subsubsection{6.1 Calculation type}\label{calculation-type-1}}
+
+Same keywords as HRS: \texttt{polarplot\_single},
+\texttt{polarplot\_integrate}, \texttt{angle\_scattering}.
+
+\hypertarget{parameters-1}{%
+\subsubsection{6.2 Parameters}\label{parameters-1}}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2115}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.1154}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.4231}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2500}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Parameter
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Unit
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Always / conditional
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Description
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Number of dipoles} & integer & Always shown & Number of
+molecules (N) in the aggregate. \textbf{Must equal the number of lines}
+in the positions/orientations file. The GUI automatically overwrites
+this field with the line count of the orientation data when you run a
+calculation (see §11.1). \\
+\textbf{Wavelength} & nm & Always & Laser wavelength (\lambda) in
+nanometres (e.g.~800). Used to build wave vectors (k = 2\pi n/\lambda)
+and (2k). \\
+\textbf{Refractive index -- real part} & dimensionless & Always & Real
+part of the medium refractive index (n) (e.g.~1.33 for water). \\
+\textbf{Refractive index -- imaginary part} & dimensionless & Always &
+Imaginary part of (n) (absorption). Use \texttt{0.0} for a non-absorbing
+medium. \\
+\textbf{Scattering angle Θ} & degrees & \texttt{polarplot\_single} &
+Same meaning as in HRS (0° transmission, 90° right angle). \\
+\textbf{Start / End angle} & degrees & \texttt{polarplot\_integrate} &
+Integration bounds for the scattering angle. \\
+\textbf{Number of points} & integer & \texttt{polarplot\_integrate},
+\texttt{angle\_scattering} & Number of angular samples. \\
+\end{longtable}
+
+The left column is scrollable; the buttons \textbf{Run SHS calculation}
+and \textbf{Compile SHS.c} stay pinned at the bottom of that column.
+
+\hypertarget{hyperpolarizability-ux3b2-sub-tab}{%
+\subsubsection{6.3 Hyperpolarizability (β)
+sub-tab}\label{hyperpolarizability-ux3b2-sub-tab}}
+
+Same format and buttons as in the HRS tab (see §5.3). The tensor is the
+\textbf{molecular} hyperpolarizability in the molecular frame; the C
+code rotates it into the laboratory frame for each dipole using the
+Euler angles from the orientation file.
+
+\hypertarget{positions-orientations-sub-tab}{%
+\subsubsection{6.4 Positions / Orientations
+sub-tab}\label{positions-orientations-sub-tab}}
+
+This sub-tab holds the mesoscopic description of the aggregate: for each
+molecule (j), orientation and position in the mesoscopic frame.
+
+\textbf{File format} (one molecule per line, six columns):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{φ\textquotesingle{}   θ\textquotesingle{}   ψ\textquotesingle{}   x\textquotesingle{}   y\textquotesingle{}   z\textquotesingle{}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2581}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2581}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.1935}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2903}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Column
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Symbol
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Unit
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+1 & φ′ & \textbf{radian} & Euler angle (ZYZ convention) \\
+2 & θ′ & \textbf{radian} & Euler angle \\
+3 & ψ′ & \textbf{radian} & Euler angle \\
+4--6 & x′, y′, z′ & \textbf{nm} (same length unit as wavelength) &
+Position of the molecule \\
+\end{longtable}
+
+The number of non-empty valid lines is the number of dipoles (N).
+
+Buttons:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Load file\ldots{}} --- load an existing orientation file;
+  updates \textbf{Number of dipoles} automatically.\\
+\item
+  \textbf{Save as\ldots{}} --- save the current text area to a file.
+\end{itemize}
+
+Below these controls is the \textbf{generation} panel (see §7).
+
+\hypertarget{actions-1}{%
+\subsubsection{6.5 Actions}\label{actions-1}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{▶ Run SHS calculation} --- runs \texttt{SHS} with the current
+  β, orientation data, and parameters.\\
+\item
+  \textbf{Compile SHS.c} --- recompiles the SHS binary.
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{positions-orientations-generation}{%
+\subsection{7. Positions / Orientations
+generation}\label{positions-orientations-generation}}
+
+In the SHS tab, under \textbf{Positions / Orientations}, the panel
+\textbf{Generate positions / orientations file} builds orientation files
+without leaving the GUI.
+
+\hypertarget{script-selection}{%
+\subsubsection{7.1 Script selection}\label{script-selection}}
+
+Dropdown \textbf{Choose a script:}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3429}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3714}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.2857}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Menu entry
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Script file
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Geometry
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Sphere (script\_sphere\_random.py) & \texttt{script\_sphere\_random.py}
+& Dipoles on a sphere, radial orientation + optional Gaussian
+disorder \\
+Spheroid (script\_spheroid\_random.py) &
+\texttt{script\_spheroid\_random.py} & Dipoles on a spheroid (semi-axes
+(a), (c)) + disorder \\
+Cylinder (script\_cylinder\_random.py) &
+\texttt{script\_cylinder\_random.py} & Dipoles on a cylinder surface
+grid + disorder \\
+Custom script\ldots{} & User-selected \texttt{.py} file & Any script
+that writes the 6-column format \\
+\end{longtable}
+
+\hypertarget{parameters-per-script}{%
+\subsubsection{7.2 Parameters per script}\label{parameters-per-script}}
+
+\textbf{Sphere}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.4375}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5625}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Field
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Radius (nm) & Sphere radius \\
+Number of dipoles & (N) \\
+σ disorder (rad) & Standard deviation of angular noise around the radial
+direction (0 = pure radial) \\
+\end{longtable}
+
+\textbf{Spheroid}
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule\noalign{}
+Field & Meaning \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Radius a (nm) & Equatorial semi-axis \\
+Radius c (nm) & Polar semi-axis \\
+Number of dipoles & (N) \\
+σ disorder (rad) & Angular disorder \\
+\end{longtable}
+
+\textbf{Cylinder}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.4375}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5625}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Field
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Radius (nm) & Cylinder radius \\
+Length (nm) & Cylinder length \\
+Dipoles per radius & Number of angular samples around the
+circumference \\
+Dipoles along length & Number of samples along the axis \\
+σ disorder (rad) & Angular disorder \\
+\end{longtable}
+
+Total (N =) (dipoles per radius) × (dipoles along length).
+
+\textbf{Custom script}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Browse\ldots{}} --- select a Python script.\\
+\item
+  \textbf{stdin answers (one per line)} --- answers to the script's
+  interactive \texttt{input()} prompts, in order.\\
+\item
+  The GUI always passes the output file path as \texttt{sys.argv{[}1{]}}
+  (same convention as the official PySHS scripts).
+\end{itemize}
+
+\hypertarget{generate-button}{%
+\subsubsection{7.3 Generate button}\label{generate-button}}
+
+\textbf{▶ Generate positions / orientations file} runs the selected
+script, loads the resulting 6-column data into the text area, sets
+\textbf{Number of dipoles} to the line count, and refreshes the
+\textbf{Dipole assembly} plot.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{results-panel-and-plots}{%
+\subsection{8. Results panel and plots}\label{results-panel-and-plots}}
+
+\hypertarget{calculation-results-text}{%
+\subsubsection{8.1 Calculation results
+(text)}\label{calculation-results-text}}
+
+The left bottom panel shows:
+
+\begin{itemize}
+\tightlist
+\item
+  compilation messages;\\
+\item
+  live stdout/stderr from the C program (progress percentages, angle
+  values, \texttt{av}, \texttt{bv}, \texttt{cv}, \ldots);\\
+\item
+  the content of the main output file written by HRS/SHS;\\
+\item
+  warnings (e.g.~mismatch between the dipole field and the orientation
+  file).
+\end{itemize}
+
+Buttons:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Save\ldots{}} --- save the full log to a text file.\\
+\item
+  \textbf{Clear} --- clear the panel.\\
+\item
+  \textbf{⏹ Stop calculation} --- kill the running C process (enabled
+  only while a job is running).
+\end{itemize}
+
+There is \textbf{no time limit} on calculations. Large aggregates ((N
+\sim 10\textsuperscript{3)--(10}4)) may run for minutes to hours.
+
+\hypertarget{plots}{%
+\subsubsection{8.2 Plots}\label{plots}}
+
+Two sub-tabs:
+
+\textbf{SHS Intensity}
+
+\begin{itemize}
+\tightlist
+\item
+  For \texttt{polarplot\_single} / \texttt{polarplot\_integrate}: curves
+  \textbf{IV(γ)} and \textbf{IH(γ)} versus polarization angle γ
+  (degrees).\\
+\item
+  For \texttt{angle\_scattering}: \textbf{IV(0°)}, \textbf{IV(90°)},
+  \textbf{IH(0°)}, \textbf{IH(90°)} versus scattering angle (with
+  symmetrization about 0° as in the official plotting scripts).
+\end{itemize}
+
+\textbf{Dipole assembly} (mainly SHS)
+
+\begin{itemize}
+\tightlist
+\item
+  3D quiver plot of molecular positions and orientation directions,
+  built from the orientation data (same role as
+  \texttt{graph\_assembly.py} in the official package).
+\end{itemize}
+
+Export:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Export intensity plot\ldots{}} --- PNG or PDF.\\
+\item
+  \textbf{Export assembly plot\ldots{}} --- PNG or PDF.
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{input-file-formats}{%
+\subsection{9. Input file formats}\label{input-file-formats}}
+
+\hypertarget{hyperpolarizability-file-input_beta}{%
+\subsubsection{\texorpdfstring{9.1 Hyperpolarizability file
+(\texttt{input\_beta})}{9.1 Hyperpolarizability file (input\_beta)}}\label{hyperpolarizability-file-input_beta}}
+
+See §5.3. Values in \textbf{atomic units}. First line = comment; then 27
+labelled components.
+
+\hypertarget{orientation-position-file-shs-only}{%
+\subsubsection{9.2 Orientation / position file (SHS
+only)}\label{orientation-position-file-shs-only}}
+
+See §6.4. Angles in \textbf{radians}, positions in \textbf{nm}
+(consistent with wavelength in nm). One molecule per line:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{phi  theta  psi  x  y  z}
+\end{Highlighting}
+\end{Shaded}
+
+Example (two molecules):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{  0.000000   1.570796   0.000000   10.000000    0.000000    0.000000}
+\NormalTok{  3.141593   1.570796   0.000000  {-}10.000000    0.000000    0.000000}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{practical-workflow-examples}{%
+\subsection{10. Practical workflow
+examples}\label{practical-workflow-examples}}
+
+\hypertarget{hrs-polarization-plot-at-90}{%
+\subsubsection{10.1 HRS polarization plot at
+90°}\label{hrs-polarization-plot-at-90}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Open tab \textbf{HRS Calculation}.\\
+\item
+  Set \textbf{Calculation type} = \texttt{polarplot\_single}.\\
+\item
+  Set \textbf{Scattering angle Θ} = \texttt{90}.\\
+\item
+  Load or edit the β tensor.\\
+\item
+  Click \textbf{▶ Run HRS calculation}.\\
+\item
+  Inspect coefficients in the log (\texttt{av}, \texttt{bv},
+  \texttt{cv}, \texttt{I2v}, \texttt{I4v}, \ldots) and the intensity
+  plot.
+\end{enumerate}
+
+\hypertarget{shs-for-a-spherical-aggregate}{%
+\subsubsection{10.2 SHS for a spherical
+aggregate}\label{shs-for-a-spherical-aggregate}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Open tab \textbf{SHS Calculation}.\\
+\item
+  Set \textbf{Calculation type} = \texttt{polarplot\_single}, Θ =
+  \texttt{90}.\\
+\item
+  Set \textbf{Wavelength} = \texttt{800}, \textbf{n real} =
+  \texttt{1.33}, \textbf{n imag} = \texttt{0.0}.\\
+\item
+  Load the molecular β tensor.\\
+\item
+  In \textbf{Positions / Orientations}, choose \textbf{Sphere}, set
+  radius and (N), click \textbf{Generate}.\\
+\item
+  Confirm that \textbf{Number of dipoles} matches the generated line
+  count.\\
+\item
+  Click \textbf{▶ Run SHS calculation}.\\
+\item
+  Review intensity plot and dipole assembly plot; export if needed.
+\end{enumerate}
+
+\hypertarget{angle-resolved-shs}{%
+\subsubsection{10.3 Angle-resolved SHS}\label{angle-resolved-shs}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Set \textbf{Calculation type} = \texttt{angle\_scattering}.\\
+\item
+  Set \textbf{Number of points} (e.g.~20 → sampling from −180° to +180°
+  in the C code's convention).\\
+\item
+  Provide β and orientation data.\\
+\item
+  Run and inspect the angle-resolved curves.
+\end{enumerate}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{important-notes-and-troubleshooting}{%
+\subsection{11. Important notes and
+troubleshooting}\label{important-notes-and-troubleshooting}}
+
+\hypertarget{number-of-dipoles-must-match-the-orientation-file}{%
+\subsubsection{11.1 Number of dipoles must match the orientation
+file}\label{number-of-dipoles-must-match-the-orientation-file}}
+
+The C program asks for (N) and then reads \textbf{exactly (N) lines}
+from the orientation file.
+
+In coherent SHS, intensities scale approximately as (N\^{}2). If the GUI
+field \textbf{Number of dipoles} differs from the number of lines in the
+file, results can be wrong by large factors (e.g.~a factor of 400 if (N)
+differs by 20).
+
+\textbf{The GUI now forces (N) to the line count of the orientation data
+when a calculation is started}, and logs a warning if the field was
+inconsistent.
+
+When comparing GUI results with a manual terminal run, use the
+\textbf{same} (N), β file, orientation file, wavelength, refractive
+index, angle, and keyword.
+
+\hypertarget{large-n-and-memory}{%
+\subsubsection{11.2 Large (N) and memory}\label{large-n-and-memory}}
+
+\texttt{SHS.c} allocates large arrays on the stack sized by (N). Very
+large (N) (many thousands) may crash or become extremely slow. Prefer
+testing with hundreds of dipoles before scaling up.
+
+\hypertarget{live-progress-not-visible}{%
+\subsubsection{11.3 Live progress not
+visible}\label{live-progress-not-visible}}
+
+Progress lines require line-buffered stdout. The GUI:
+
+\begin{itemize}
+\tightlist
+\item
+  compiles the C sources with \texttt{setvbuf} for line buffering;\\
+\item
+  launches processes with \texttt{stdbuf\ -oL\ -eL} when available.
+\end{itemize}
+
+Some calculation modes print little until the end;
+\texttt{angle\_scattering} is usually the most verbose (one message per
+angle).
+
+\hypertarget{compiler-not-found}{%
+\subsubsection{11.4 Compiler not found}\label{compiler-not-found}}
+
+Install a C compiler and ensure it is on the \texttt{PATH}. Use
+\textbf{Compile HRS.c} / \textbf{Compile SHS.c} and read the log panel.
+
+\hypertarget{stopping-a-long-job}{%
+\subsubsection{11.5 Stopping a long job}\label{stopping-a-long-job}}
+
+Use \textbf{⏹ Stop calculation} in the results panel. The underlying C
+process is terminated.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{relation-to-the-command-line-pyshs-codes}{%
+\subsection{12. Relation to the command-line PySHS
+codes}\label{relation-to-the-command-line-pyshs-codes}}
+
+The GUI does \textbf{not} reimplement the physics. It:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  writes temporary β (and orientation) files;\\
+\item
+  builds the same command line as in the official manual, e.g.~
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ExtensionTok{./SHS}\NormalTok{ polarplot\_single input\_beta.txt input\_orient.txt output.txt}
+\end{Highlighting}
+\end{Shaded}
+\item
+  supplies the interactive answers (\texttt{scanf}) via stdin:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    SHS: (N), wavelength (nm), (\mathrm{Re}(n)), (\mathrm{Im}(n)), then
+    angle-related values depending on the keyword;\\
+  \item
+    HRS: angle-related values only;\\
+  \end{itemize}
+\item
+  reads \texttt{out\_plot} and the main output file for display.
+\end{enumerate}
+
+For the definition of laboratory frames, Euler conventions (ZYZ),
+intensity formulas, and coefficient definitions ((a\_V), (b\_V), (c\_V),
+(I\_2), (I\_4), \ldots), refer to \textbf{Chapters 2--4 of the official
+PySHS V3.2.x user manual}.
+
+\hypertarget{equivalent-terminal-commands}{%
+\subsubsection{Equivalent terminal
+commands}\label{equivalent-terminal-commands}}
+
+\textbf{HRS}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ExtensionTok{./HRS} \OperatorTok{\textless{}}\NormalTok{Keyword}\OperatorTok{\textgreater{}} \OperatorTok{\textless{}}\NormalTok{input\_beta}\OperatorTok{\textgreater{}} \OperatorTok{\textless{}}\NormalTok{outputfile}\OperatorTok{\textgreater{}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{SHS}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ExtensionTok{./SHS} \OperatorTok{\textless{}}\NormalTok{Keyword}\OperatorTok{\textgreater{}} \OperatorTok{\textless{}}\NormalTok{input\_beta}\OperatorTok{\textgreater{}} \OperatorTok{\textless{}}\NormalTok{input\_orientation}\OperatorTok{\textgreater{}} \OperatorTok{\textless{}}\NormalTok{outputfile}\OperatorTok{\textgreater{}}
+\end{Highlighting}
+\end{Shaded}
+
+Keywords: \texttt{polarplot\_single} \textbar{}
+\texttt{polarplot\_integrate} \textbar{} \texttt{angle\_scattering}.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{acknowledgements}{%
+\subsection{Acknowledgements}\label{acknowledgements}}
+
+PySHS was developed at Institut Charles Gerhardt Montpellier -- ENSCM.\\
+Support: CAMOMILS Research National French Agency, ANR-15-CE21-0002.
+
+Contributors to the scientific code include Dr Pierre-Marie Gassin, Dr
+Lotfi Boudjema, and Dr Gaelle Gassin. Discussions with
+Prof.~Pierre-François Brevet and the precursor work of Dr Julien
+Duboisset (HRS\_computing) are gratefully acknowledged.
+
+Please cite:
+
+\begin{quote}
+J. Chem. Inf. Model. 2020, 60, 12, 5912--5917
+\end{quote}
+
+when publishing results obtained with PySHS (command line or GUI).
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{End of the PySHS GUI User Manual}

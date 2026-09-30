@@ -1,0 +1,24 @@
+# Binaries
+HRS
+SHS
+HRS.exe
+SHS.exe
+*.o
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Temp / work
+work/
+*.png
+out_plot
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

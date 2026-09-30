@@ -1,0 +1,848 @@
+#!/usr/bin/env python3
+"""
+PySHS V3.2.x – Interface graphique Tkinter
+==========================================
+Interface utilisateur pour les programmes HRS et SHS (sources C).
+Compile automatiquement les sources, gère les entrées interactives,
+affiche les résultats et génère les graphiques.
+
+Auteur : adapté du manuel utilisateur PySHS V3.2.3
+"""
+
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+import subprocess
+import os
+import sys
+import threading
+import tempfile
+import shutil
+from pathlib import Path
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+import numpy as np
+
+# ---------------------------------------------------------------------------
+# Chemins
+# ---------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+SRC_HRS = BASE_DIR / "HRS.c"
+SRC_SHS = BASE_DIR / "SHS.c"
+EXE_HRS = BASE_DIR / ("HRS.exe" if sys.platform == "win32" else "HRS")
+EXE_SHS = BASE_DIR / ("SHS.exe" if sys.platform == "win32" else "SHS")
+WORK_DIR = BASE_DIR / "work"
+WORK_DIR.mkdir(exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Exemple de tenseur beta (en a.u.)
+# ---------------------------------------------------------------------------
+EXAMPLE_BETA = """# Exemple tenseur hyperpolarisabilité (a.u.)
+xxx 0.0
+xxy 0.0
+xxz 0.0
+xyx 0.0
+xyy 0.0
+xyz 0.0
+xzx 0.0
+xzy 0.0
+xzz 0.0
+yxx 0.0
+yxy 0.0
+yxz 0.0
+yyx 0.0
+yyy 0.0
+yyz 0.0
+yzx 0.0
+yzy 0.0
+yzz 0.0
+zxx 0.0
+zxy 0.0
+zxz 0.0
+zyx 0.0
+zyy 0.0
+zyz 0.0
+zzx 0.0
+zzy 0.0
+zzz 1.0
+"""
+
+# ---------------------------------------------------------------------------
+# Utilitaires compilation
+# ---------------------------------------------------------------------------
+def find_compiler():
+    candidates = ["gcc", "clang"]
+    if sys.platform == "win32":
+        candidates = ["gcc", "clang", "cl"]
+    for c in candidates:
+        try:
+            subprocess.run([c, "--version"], capture_output=True, check=True)
+            return c
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+    return None
+
+
+def compile_source(src: Path, exe: Path, log_callback=None) -> bool:
+    compiler = find_compiler()
+    if compiler is None:
+        if log_callback:
+            log_callback("ERREUR : aucun compilateur C trouvé (gcc/clang).\n"
+                         "Installez build-essential (Linux), Xcode CLI (macOS) ou MinGW (Windows).")
+        return False
+
+    if not src.exists():
+        if log_callback:
+            log_callback(f"ERREUR : source introuvable : {src}")
+        return False
+
+    # Recompiler seulement si nécessaire
+    if exe.exists() and exe.stat().st_mtime > src.stat().st_mtime:
+        if log_callback:
+            log_callback(f"Exécutable déjà à jour : {exe.name}")
+        return True
+
+    cmd = [compiler, str(src), "-o", str(exe), "-lm"]
+    if log_callback:
+        log_callback(f"Compilation : {' '.join(cmd)}\n")
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            if log_callback:
+                log_callback("Échec de compilation :\n" + res.stderr)
+            return False
+        if sys.platform != "win32":
+            os.chmod(exe, 0o755)
+        if log_callback:
+            log_callback(f"Compilation réussie → {exe.name}\n")
+        return True
+    except Exception as e:
+        if log_callback:
+            log_callback(f"Exception compilation : {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Génération de sphère (inspirée de script_sphere_random.py)
+# ---------------------------------------------------------------------------
+def generate_sphere_positions(radius_nm: float, n_dipoles: int, sigma: float = 0.0) -> str:
+    """Génère les positions/orientations (φ θ ψ x y z) pour une sphère."""
+    import math
+    import random
+
+    def fibonacci_sphere(samples):
+        rnd = random.random() * samples
+        points = []
+        offset = 2.0 / samples
+        increment = math.pi * (3.0 - math.sqrt(5.0))
+        for i in range(samples):
+            y = ((i * offset) - 1) + (offset / 2)
+            r = math.sqrt(1 - y * y)
+            phi = ((i + rnd) % samples) * increment
+            x = math.cos(phi) * r
+            z = math.sin(phi) * r
+            points.append((x, y, z))
+        return points
+
+    pts = fibonacci_sphere(n_dipoles)
+    lines = []
+    for x0, y0, z0 in pts:
+        x = radius_nm * x0
+        y = radius_nm * y0
+        z = radius_nm * z0
+        # orientation radiale
+        theta = math.acos(max(-1.0, min(1.0, z0)))
+        if abs(math.sin(theta)) < 1e-12:
+            phi = 0.0
+        else:
+            phi = math.acos(max(-1.0, min(1.0, x0 / math.sin(theta))))
+            if y0 < 0:
+                phi = -phi
+        psi = 0.0
+        # désordre optionnel
+        if sigma > 0:
+            theta += random.gauss(0, sigma)
+            phi += random.gauss(0, sigma)
+        lines.append(f"{phi:12.6f} {theta:12.6f} {psi:12.6f} {x:12.6f} {y:12.6f} {z:12.6f}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Application principale
+# ---------------------------------------------------------------------------
+class PySHSApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("PySHS V3.2 – Interface graphique")
+        self.geometry("1150x720")
+        self.minsize(900, 600)
+
+        self.current_module = tk.StringVar(value="HRS")
+        self.keyword = tk.StringVar(value="polarplot_single")
+        self.job_running = False
+
+        self._build_ui()
+        self._update_visibility()
+
+        # Compilation initiale en arrière-plan
+        self.after(200, self._initial_compile)
+
+    # ------------------------------------------------------------------
+    # Construction de l'interface
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        # ----- Header -----
+        header = tk.Frame(self, bg="#1e40af", height=60)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        tk.Label(header, text="PySHS V3.2 – Second Harmonic Scattering",
+                 font=("Segoe UI", 16, "bold"), fg="white", bg="#1e40af").pack(side=tk.LEFT, padx=20, pady=12)
+        tk.Label(header, text="Interface graphique Tkinter",
+                 font=("Segoe UI", 10), fg="#bfdbfe", bg="#1e40af").pack(side=tk.LEFT, padx=10)
+
+        # ----- Corps principal (paned) -----
+        main = tk.PanedWindow(self, orient=tk.HORIZONTAL, sashrelief=tk.RAISED)
+        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        # Colonne gauche : paramètres (avec scroll vertical)
+        left_outer = ttk.Frame(main)
+        main.add(left_outer, width=400)
+
+        # Canvas + scrollbar pour pouvoir tout voir
+        self.left_canvas = tk.Canvas(left_outer, highlightthickness=0)
+        left_scroll = ttk.Scrollbar(left_outer, orient=tk.VERTICAL,
+                                    command=self.left_canvas.yview)
+        self.left_canvas.configure(yscrollcommand=left_scroll.set)
+        left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        left = ttk.Frame(self.left_canvas, padding=6)
+        self.left_window = self.left_canvas.create_window((0, 0), window=left, anchor="nw")
+
+        def _on_left_configure(event):
+            self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
+            # Adapter la largeur du frame interne à celle du canvas
+            self.left_canvas.itemconfig(self.left_window, width=event.width)
+
+        def _on_canvas_configure(event):
+            self.left_canvas.itemconfig(self.left_window, width=event.width)
+
+        left.bind("<Configure>", _on_left_configure)
+        self.left_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Molette de la souris pour scroller
+        def _on_mousewheel(event):
+            if sys.platform == "darwin":
+                self.left_canvas.yview_scroll(-1 * event.delta, "units")
+            else:
+                self.left_canvas.yview_scroll(-1 * (event.delta // 120), "units")
+        self.left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self.left_canvas.bind_all("<Button-4>", lambda e: self.left_canvas.yview_scroll(-1, "units"))
+        self.left_canvas.bind_all("<Button-5>", lambda e: self.left_canvas.yview_scroll(1, "units"))
+
+        # Colonne droite : résultats + graphiques
+        right = ttk.Frame(main, padding=8)
+        main.add(right)
+
+        self._build_left(left)
+        self._build_right(right)
+
+    def _build_left(self, parent):
+        # Module + Type de calcul côte à côte pour gagner de la place
+        top_row = ttk.Frame(parent)
+        top_row.pack(fill=tk.X, pady=(0, 6))
+
+        lf_mod = ttk.LabelFrame(top_row, text="Module", padding=6)
+        lf_mod.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
+        ttk.Radiobutton(lf_mod, text="HRS (incohérent)",
+                        variable=self.current_module, value="HRS",
+                        command=self._update_visibility).pack(anchor=tk.W)
+        ttk.Radiobutton(lf_mod, text="SHS (corrélé)",
+                        variable=self.current_module, value="SHS",
+                        command=self._update_visibility).pack(anchor=tk.W)
+
+        lf_kw = ttk.LabelFrame(top_row, text="Type de calcul", padding=6)
+        lf_kw.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ttk.Combobox(lf_kw, textvariable=self.keyword,
+                     values=["polarplot_single", "polarplot_integrate", "angle_scattering"],
+                     state="readonly", width=22).pack(fill=tk.X, pady=2)
+        self.keyword.trace_add("write", lambda *_: self._update_visibility())
+
+        # Paramètres numériques (compact)
+        self.lf_params = ttk.LabelFrame(parent, text="Paramètres", padding=6)
+        self.lf_params.pack(fill=tk.X, pady=(0, 6))
+
+        self.entries = {}
+        self._param_widgets = {}
+
+        def add_entry(key, label, default, row):
+            ttk.Label(self.lf_params, text=label).grid(row=row, column=0, sticky=tk.W, pady=1)
+            var = tk.StringVar(value=str(default))
+            ent = ttk.Entry(self.lf_params, textvariable=var, width=12)
+            ent.grid(row=row, column=1, sticky=tk.W, pady=1, padx=4)
+            self.entries[key] = var
+            self._param_widgets[key] = (ent, row)
+
+        add_entry("theta", "Angle Θ (°)", 90, 0)
+        add_entry("theta_start", "Angle début (°)", 0, 1)
+        add_entry("theta_end", "Angle fin (°)", 180, 2)
+        add_entry("n_points", "Nb points", 20, 3)
+        add_entry("n_dipoles", "Nb dipôles", 100, 4)
+        add_entry("wavelength", "λ (nm)", 800, 5)
+        add_entry("n_real", "n (réel)", 1.33, 6)
+        add_entry("n_imag", "n (imag)", 0.0, 7)
+
+        # ----- Notebook : Beta | Orientation -----
+        self.nb_files = ttk.Notebook(parent)
+        self.nb_files.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+
+        # Onglet Beta
+        tab_beta = ttk.Frame(self.nb_files, padding=4)
+        self.nb_files.add(tab_beta, text="  Hyperpolarisabilité (β)  ")
+
+        self.txt_beta = scrolledtext.ScrolledText(tab_beta, height=10, width=40, font=("Consolas", 9))
+        self.txt_beta.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
+        self.txt_beta.insert(tk.END, EXAMPLE_BETA)
+
+        btn_beta = ttk.Frame(tab_beta)
+        btn_beta.pack(fill=tk.X)
+        ttk.Button(btn_beta, text="Charger exemple", command=self._load_example_beta).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_beta, text="Charger fichier…", command=self._load_beta_file).pack(side=tk.LEFT, padx=2)
+
+        # Onglet Orientation (SHS)
+        self.tab_orient = ttk.Frame(self.nb_files, padding=4)
+        self.nb_files.add(self.tab_orient, text="  Positions / Orientations  ")
+
+        self.txt_orient = scrolledtext.ScrolledText(self.tab_orient, height=8, width=40, font=("Consolas", 9))
+        self.txt_orient.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
+
+        orient_btn = ttk.Frame(self.tab_orient)
+        orient_btn.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(orient_btn, text="Charger fichier…",
+                   command=self._load_orient_file).pack(side=tk.LEFT, padx=2)
+        ttk.Button(orient_btn, text="Enregistrer sous…",
+                   command=self._save_orient_file).pack(side=tk.LEFT, padx=2)
+
+        # Génération sphère (compact, 2 lignes)
+        gen_frame = ttk.LabelFrame(self.tab_orient, text="Générer sphère (script_sphere_random.py)", padding=4)
+        gen_frame.pack(fill=tk.X)
+        ttk.Label(gen_frame, text="Rayon (nm)").grid(row=0, column=0, sticky=tk.W)
+        self.gen_radius = tk.StringVar(value="50")
+        ttk.Entry(gen_frame, textvariable=self.gen_radius, width=7).grid(row=0, column=1, padx=2, pady=2)
+        ttk.Label(gen_frame, text="N dipôles").grid(row=0, column=2, sticky=tk.W)
+        self.gen_ndip = tk.StringVar(value="100")
+        ttk.Entry(gen_frame, textvariable=self.gen_ndip, width=7).grid(row=0, column=3, padx=2, pady=2)
+        ttk.Label(gen_frame, text="σ désordre").grid(row=1, column=0, sticky=tk.W)
+        self.gen_sigma = tk.StringVar(value="0.3")
+        ttk.Entry(gen_frame, textvariable=self.gen_sigma, width=7).grid(row=1, column=1, padx=2, pady=2)
+        ttk.Button(gen_frame, text="Générer avec le script",
+                   command=self._generate_sphere_with_script).grid(row=1, column=2, columnspan=2, padx=4, pady=2, sticky=tk.E)
+
+        # Boutons d'action (toujours visibles en bas)
+        act = ttk.Frame(parent)
+        act.pack(fill=tk.X, pady=(4, 2))
+        self.btn_compile = ttk.Button(act, text="Compiler les sources C", command=self._compile_all)
+        self.btn_compile.pack(side=tk.LEFT, padx=2)
+        self.btn_run = ttk.Button(act, text="▶  Lancer le calcul", command=self._run_calculation)
+        self.btn_run.pack(side=tk.LEFT, padx=2)
+
+    def _build_right(self, parent):
+        # Zone de log / résultats
+        lf_res = ttk.LabelFrame(parent, text="Résultats du calcul", padding=6)
+        lf_res.pack(fill=tk.BOTH, expand=True)
+
+        self.txt_result = scrolledtext.ScrolledText(lf_res, height=18, font=("Consolas", 9),
+                                                    bg="#0f172a", fg="#e2e8f0", insertbackground="white")
+        self.txt_result.pack(fill=tk.BOTH, expand=True)
+
+        btn_res = ttk.Frame(lf_res)
+        btn_res.pack(fill=tk.X, pady=4)
+        ttk.Button(btn_res, text="Enregistrer résultats…", command=self._save_results).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_res, text="Effacer", command=lambda: self.txt_result.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=2)
+
+        # Zone graphiques
+        self.lf_plots = ttk.LabelFrame(parent, text="Graphiques", padding=6)
+        self.lf_plots.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.plot_container = ttk.Frame(self.lf_plots)
+        self.plot_container.pack(fill=tk.BOTH, expand=True)
+
+    # ------------------------------------------------------------------
+    # Visibilité des champs selon le module / keyword
+    # ------------------------------------------------------------------
+    def _update_visibility(self):
+        mod = self.current_module.get()
+        kw = self.keyword.get()
+
+        # Afficher/masquer l'onglet Orientation selon le module
+        try:
+            if mod == "SHS":
+                # S'assurer que l'onglet Orientation est présent
+                tabs = self.nb_files.tabs()
+                if str(self.tab_orient) not in tabs:
+                    self.nb_files.add(self.tab_orient, text="  Positions / Orientations  ")
+            else:
+                # Masquer l'onglet Orientation pour HRS
+                try:
+                    self.nb_files.hide(self.tab_orient)
+                except tk.TclError:
+                    pass
+        except Exception:
+            pass
+
+        # Quels paramètres montrer
+        show = set()
+        if mod == "HRS":
+            if kw == "polarplot_single":
+                show = {"theta"}
+            elif kw == "polarplot_integrate":
+                show = {"theta_start", "theta_end", "n_points"}
+            elif kw == "angle_scattering":
+                show = {"n_points"}
+        else:  # SHS
+            show = {"n_dipoles", "wavelength", "n_real", "n_imag"}
+            if kw == "polarplot_single":
+                show.add("theta")
+            elif kw == "polarplot_integrate":
+                show.update({"theta_start", "theta_end", "n_points"})
+            elif kw == "angle_scattering":
+                show.add("n_points")
+
+        for key, (widget, row) in self._param_widgets.items():
+            # Afficher ou masquer le label + l'entry de cette ligne
+            for child in self.lf_params.grid_slaves():
+                info = child.grid_info()
+                if int(info.get("row", -1)) == row:
+                    if key in show:
+                        child.grid()
+                    else:
+                        child.grid_remove()
+
+    # ------------------------------------------------------------------
+    # Actions simples
+    # ------------------------------------------------------------------
+    def _log(self, msg: str):
+        self.txt_result.insert(tk.END, msg + "\n")
+        self.txt_result.see(tk.END)
+        self.update_idletasks()
+
+    def _load_example_beta(self):
+        self.txt_beta.delete(1.0, tk.END)
+        self.txt_beta.insert(tk.END, EXAMPLE_BETA)
+
+    def _load_beta_file(self):
+        path = filedialog.askopenfilename(filetypes=[("Text", "*.txt"), ("All", "*.*")])
+        if path:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                self.txt_beta.delete(1.0, tk.END)
+                self.txt_beta.insert(tk.END, f.read())
+
+    def _load_orient_file(self):
+        """Charge un fichier positions/orientations depuis le disque."""
+        path = filedialog.askopenfilename(
+            title="Charger un fichier positions/orientations",
+            filetypes=[("Text", "*.txt"), ("All", "*.*")]
+        )
+        if path:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+                self.txt_orient.delete(1.0, tk.END)
+                self.txt_orient.insert(tk.END, content)
+                self._log(f"Fichier d'orientation chargé : {path}")
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible de lire le fichier :\n{e}")
+
+    def _save_orient_file(self):
+        """Enregistre le contenu de la zone orientation dans un fichier."""
+        content = self.txt_orient.get(1.0, tk.END).strip()
+        if not content:
+            messagebox.showinfo("Info", "La zone positions/orientations est vide.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Enregistrer le fichier positions/orientations",
+            defaultextension=".txt",
+            filetypes=[("Text", "*.txt")]
+        )
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content + "\n")
+                self._log(f"Fichier d'orientation enregistré → {path}")
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible d'écrire le fichier :\n{e}")
+
+    def _generate_sphere_with_script(self):
+        """
+        Appelle le vrai script_sphere_random.py pour générer les positions.
+        Le script est interactif (input()), on lui fournit les réponses via stdin.
+        """
+        script = BASE_DIR / "script_sphere_random.py"
+        if not script.exists():
+            messagebox.showerror("Erreur", f"Script introuvable :\n{script}")
+            return
+
+        try:
+            r = float(self.gen_radius.get())
+            n = int(self.gen_ndip.get())
+            s = float(self.gen_sigma.get())
+        except ValueError:
+            messagebox.showerror("Erreur", "Valeurs numériques invalides pour la génération de sphère.")
+            return
+
+        # Fichier de sortie temporaire
+        out_file = WORK_DIR / f"sphere_random_{os.getpid()}.txt"
+        # Le script attend : python script_sphere_random.py <fichier_sortie>
+        # puis interactivement : radius, nombre, sigma
+
+        stdin_data = f"{r}\n{n}\n{s}\n"
+        self._log(f"Génération sphère via script_sphere_random.py "
+                  f"(R={r} nm, N={n}, σ={s})…")
+
+        def worker():
+            try:
+                # Désactiver l'affichage matplotlib du script (plt.show())
+                env = os.environ.copy()
+                env["MPLBACKEND"] = "Agg"  # backend non-interactif
+
+                proc = subprocess.run(
+                    [sys.executable, str(script), str(out_file)],
+                    input=stdin_data,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=str(BASE_DIR),
+                    env=env
+                )
+
+                if proc.returncode != 0:
+                    self.after(0, lambda: self._log(
+                        "Erreur lors de l'exécution de script_sphere_random.py :\n" + proc.stderr
+                    ))
+                    return
+
+                if not out_file.exists():
+                    self.after(0, lambda: self._log(
+                        "Le script s'est terminé mais le fichier de sortie n'a pas été créé."
+                    ))
+                    return
+
+                content = out_file.read_text(encoding="utf-8", errors="replace")
+                # Nettoyer le fichier temporaire (on garde le contenu en mémoire)
+                try:
+                    out_file.unlink()
+                except OSError:
+                    pass
+
+                def update_ui():
+                    self.txt_orient.delete(1.0, tk.END)
+                    self.txt_orient.insert(tk.END, content)
+                    n_lines = len([l for l in content.splitlines() if l.strip()])
+                    self._log(f"Sphère générée avec succès ({n_lines} dipôles).\n"
+                              f"Contenu chargé dans la zone Positions / Orientations.")
+
+                self.after(0, update_ui)
+
+            except subprocess.TimeoutExpired:
+                self.after(0, lambda: self._log("Timeout lors de la génération de la sphère."))
+            except Exception as e:
+                self.after(0, lambda: self._log(f"Exception génération sphère : {e}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _save_results(self):
+        content = self.txt_result.get(1.0, tk.END)
+        if not content.strip():
+            messagebox.showinfo("Info", "Aucun résultat à enregistrer.")
+            return
+        path = filedialog.asksaveasfilename(defaultextension=".txt",
+                                            filetypes=[("Text", "*.txt")])
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._log(f"Résultats enregistrés → {path}")
+
+    # ------------------------------------------------------------------
+    # Compilation
+    # ------------------------------------------------------------------
+    def _initial_compile(self):
+        self._log("Vérification / compilation des sources C…")
+        threading.Thread(target=self._compile_all, daemon=True).start()
+
+    def _compile_all(self):
+        def work():
+            ok1 = compile_source(SRC_HRS, EXE_HRS, self._log)
+            ok2 = compile_source(SRC_SHS, EXE_SHS, self._log)
+            if ok1 and ok2:
+                self._log("Tous les exécutables sont prêts.\n")
+            else:
+                self._log("Certaines compilations ont échoué. Vérifiez les messages ci-dessus.\n")
+        if threading.current_thread() is threading.main_thread():
+            threading.Thread(target=work, daemon=True).start()
+        else:
+            work()
+
+    # ------------------------------------------------------------------
+    # Lancement du calcul
+    # ------------------------------------------------------------------
+    def _run_calculation(self):
+        if self.job_running:
+            messagebox.showwarning("Attention", "Un calcul est déjà en cours.")
+            return
+
+        mod = self.current_module.get()
+        kw = self.keyword.get()
+
+        # Vérifier exécutable
+        exe = EXE_HRS if mod == "HRS" else EXE_SHS
+        if not exe.exists():
+            self._log("Exécutable manquant – tentative de compilation…")
+            if not compile_source(SRC_HRS if mod == "HRS" else SRC_SHS, exe, self._log):
+                messagebox.showerror("Erreur", "Impossible de compiler le programme C.")
+                return
+
+        # Préparer fichiers temporaires
+        beta_content = self.txt_beta.get(1.0, tk.END).strip()
+        if not beta_content:
+            messagebox.showerror("Erreur", "Le tenseur beta est vide.")
+            return
+
+        work = tempfile.mkdtemp(prefix="pyshs_", dir=str(WORK_DIR))
+        beta_file = Path(work) / "input_beta.txt"
+        orient_file = Path(work) / "input_orient.txt"
+        out_file = Path(work) / "output.txt"
+
+        # Écrire beta (le programme C attend un format précis avec labels)
+        with open(beta_file, "w", encoding="utf-8") as f:
+            f.write(beta_content)
+            if not beta_content.endswith("\n"):
+                f.write("\n")
+
+        # Orientation pour SHS
+        if mod == "SHS":
+            orient_content = self.txt_orient.get(1.0, tk.END).strip()
+            if not orient_content:
+                messagebox.showerror("Erreur", "Le fichier positions/orientations est vide.")
+                return
+            with open(orient_file, "w", encoding="utf-8") as f:
+                f.write(orient_content + "\n")
+
+        # Construire les réponses interactives (stdin)
+        answers = []
+        try:
+            if mod == "HRS":
+                if kw == "polarplot_single":
+                    answers.append(str(float(self.entries["theta"].get())))
+                elif kw == "polarplot_integrate":
+                    answers.append(str(float(self.entries["theta_start"].get())))
+                    answers.append(str(float(self.entries["theta_end"].get())))
+                    answers.append(str(int(self.entries["n_points"].get())))
+                elif kw == "angle_scattering":
+                    answers.append(str(int(self.entries["n_points"].get())))
+            else:  # SHS
+                answers.append(str(int(self.entries["n_dipoles"].get())))
+                answers.append(str(float(self.entries["wavelength"].get())))
+                answers.append(str(float(self.entries["n_real"].get())))
+                answers.append(str(float(self.entries["n_imag"].get())))
+                if kw == "polarplot_single":
+                    answers.append(str(float(self.entries["theta"].get())))
+                elif kw == "polarplot_integrate":
+                    answers.append(str(float(self.entries["theta_start"].get())))
+                    answers.append(str(float(self.entries["theta_end"].get())))
+                    answers.append(str(int(self.entries["n_points"].get())))
+                elif kw == "angle_scattering":
+                    answers.append(str(int(self.entries["n_points"].get())))
+        except ValueError as e:
+            messagebox.showerror("Erreur de saisie", f"Valeur numérique invalide : {e}")
+            return
+
+        stdin_data = "\n".join(answers) + "\n"
+
+        # Arguments de la ligne de commande
+        if mod == "HRS":
+            cmd = [str(exe), kw, str(beta_file), str(out_file)]
+        else:
+            cmd = [str(exe), kw, str(beta_file), str(orient_file), str(out_file)]
+
+        self.job_running = True
+        self.btn_run.config(state=tk.DISABLED)
+        self._log(f"\n{'='*60}\nLancement : {' '.join(cmd)}\nRéponses stdin : {answers}\n{'='*60}\n")
+
+        def worker():
+            try:
+                # Changer de répertoire de travail pour que out_plot soit écrit au bon endroit
+                env = os.environ.copy()
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=str(work),
+                    env=env
+                )
+                stdout, stderr = proc.communicate(input=stdin_data, timeout=600)
+
+                self.after(0, lambda: self._on_calc_finished(
+                    proc.returncode, stdout, stderr, work, out_file, kw, mod
+                ))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                self.after(0, lambda: self._log("ERREUR : timeout (10 min) – calcul interrompu."))
+                self.after(0, self._reset_run_button)
+            except Exception as e:
+                self.after(0, lambda: self._log(f"Exception : {e}"))
+                self.after(0, self._reset_run_button)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _reset_run_button(self):
+        self.job_running = False
+        self.btn_run.config(state=tk.NORMAL)
+
+    def _on_calc_finished(self, returncode, stdout, stderr, work, out_file, keyword, module):
+        self._reset_run_button()
+
+        self._log("--- Sortie standard ---")
+        self._log(stdout)
+        if stderr.strip():
+            self._log("--- Erreurs / warnings ---")
+            self._log(stderr)
+
+        if returncode != 0:
+            self._log(f"\n*** Calcul terminé avec code d'erreur {returncode} ***\n")
+            return
+
+        # Lire le fichier de sortie principal
+        if out_file.exists():
+            self._log("\n--- Contenu du fichier de sortie ---")
+            with open(out_file, encoding="utf-8", errors="replace") as f:
+                self._log(f.read())
+
+        # Chercher out_plot (écrit dans le cwd = work)
+        out_plot = Path(work) / "out_plot"
+        if out_plot.exists():
+            self._log(f"\nFichier out_plot trouvé → génération des graphiques…")
+            self._show_plots(out_plot, keyword, module, work)
+        else:
+            self._log("Aucun fichier out_plot généré (normal pour certains modes).")
+
+        self._log(f"\n*** Calcul terminé avec succès ***\n")
+
+    # ------------------------------------------------------------------
+    # Affichage des graphiques
+    # ------------------------------------------------------------------
+    def _show_plots(self, out_plot: Path, keyword: str, module: str, work: str):
+        # Nettoyer l'ancien conteneur
+        for w in self.plot_container.winfo_children():
+            w.destroy()
+
+        try:
+            data = self._parse_out_plot(out_plot)
+        except Exception as e:
+            self._log(f"Impossible de parser out_plot : {e}")
+            return
+
+        fig = Figure(figsize=(7, 3.8), dpi=100)
+
+        if keyword in ("polarplot_single", "polarplot_integrate"):
+            # gamma, IV, IH
+            ax = fig.add_subplot(111)
+            if "IV" in data and "IH" in data:
+                ax.plot(data["gamma"], data["IV"], label="IV", lw=2)
+                ax.plot(data["gamma"], data["IH"], label="IH", lw=2)
+                ax.set_xlabel("γ (°)")
+                ax.set_ylabel("Intensité SHS")
+                ax.set_title("Polarization-resolved SHS")
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+            else:
+                ax.text(0.5, 0.5, "Données polarplot non reconnues", ha="center")
+        else:  # angle_scattering
+            ax = fig.add_subplot(111)
+            if all(k in data for k in ("gamma", "IH_0", "IH_90", "IV_0", "IV_90")):
+                # Symétrisation comme dans graph_angle.py
+                g = data["gamma"]
+                g_full = g + [-x for x in reversed(g[:-1])]
+                for key, label in [("IV_0", "IV(0°)"), ("IV_90", "IV(90°)"),
+                                  ("IH_0", "IH(0°)"), ("IH_90", "IH(90°)")]:
+                    vals = data[key]
+                    full = vals + list(reversed(vals[:-1]))
+                    ax.plot(g_full, full, label=label)
+                ax.set_xlabel("Angle (°)")
+                ax.set_ylabel("Intensité SHS")
+                ax.set_title("Angle-resolved SHS")
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+            else:
+                ax.text(0.5, 0.5, "Données angle_scattering non reconnues", ha="center")
+
+        fig.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=self.plot_container)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Bouton sauvegarde image
+        def save_fig():
+            path = filedialog.asksaveasfilename(defaultextension=".png",
+                                                filetypes=[("PNG", "*.png"), ("PDF", "*.pdf")])
+            if path:
+                fig.savefig(path, dpi=150)
+                self._log(f"Graphique enregistré → {path}")
+
+        ttk.Button(self.plot_container, text="Enregistrer le graphique…",
+                   command=save_fig).pack(pady=4)
+
+    def _parse_out_plot(self, path: Path) -> dict:
+        """Parse le fichier out_plot généré par les programmes C."""
+        lines = path.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+        # Ignorer éventuelle ligne d'en-tête
+        start = 0
+        if lines and not lines[0].strip()[0].isdigit() and not lines[0].strip().startswith("-"):
+            # vérifier si c'est vraiment un header
+            parts = lines[0].split()
+            try:
+                float(parts[0])
+            except (ValueError, IndexError):
+                start = 1
+
+        gamma, IV, IH = [], [], []
+        IH_0, IH_90, IV_0, IV_90 = [], [], [], []
+
+        for line in lines[start:]:
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    vals = [float(p) for p in parts]
+                except ValueError:
+                    continue
+                if len(vals) == 3:          # polarplot : gamma IV IH
+                    gamma.append(vals[0] * 180 / np.pi if vals[0] <= 2 * np.pi + 0.1 else vals[0])
+                    IV.append(vals[1])
+                    IH.append(vals[2])
+                elif len(vals) >= 5:        # angle_scattering
+                    gamma.append(vals[0])
+                    IH_0.append(vals[1])
+                    IH_90.append(vals[2])
+                    IV_0.append(vals[3])
+                    IV_90.append(vals[4])
+
+        result = {"gamma": gamma}
+        if IV:
+            result["IV"] = IV
+            result["IH"] = IH
+        if IH_0:
+            result["IH_0"] = IH_0
+            result["IH_90"] = IH_90
+            result["IV_0"] = IV_0
+            result["IV_90"] = IV_90
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Point d'entrée
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    app = PySHSApp()
+    app.mainloop()
